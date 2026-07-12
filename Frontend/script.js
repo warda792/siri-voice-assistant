@@ -4,7 +4,7 @@ let voice = document.querySelector("#voice")
 
 // Change this to your deployed backend URL once it's live
 // e.g. "https://your-backend.onrender.com"
-const BACKEND_URL = "http://localhost:3000"
+const BACKEND_URL = "https://siri-voice-assistant-3lbv.vercel.app"
 
 function speak(text) {
     let text_speak = new SpeechSynthesisUtterance(text)
