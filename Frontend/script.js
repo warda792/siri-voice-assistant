@@ -7,6 +7,7 @@ let voice = document.querySelector("#voice")
 const BACKEND_URL = "https://siri-voice-assistant-3lbv.vercel.app"
 
 function speak(text) {
+    window.speechSynthesis.cancel()
     let text_speak = new SpeechSynthesisUtterance(text)
     text_speak.rate = 1
     text_speak.pitch = 1
