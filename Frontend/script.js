@@ -8,13 +8,21 @@ const BACKEND_URL = "https://siri-voice-assistant-3lbv.vercel.app"
 
 function speak(text) {
     window.speechSynthesis.cancel()
-    let text_speak = new SpeechSynthesisUtterance(text)
-    text_speak.rate = 1
-    text_speak.pitch = 1
-    text_speak.volume = 1
-    text_speak.lang = "en-GB"
-    window.speechSynthesis.speak(text_speak)
+    setTimeout(() => {
+        let text_speak = new SpeechSynthesisUtterance(text)
+        text_speak.rate = 1
+        text_speak.pitch = 1
+        text_speak.volume = 1
+        text_speak.lang = "en-GB"
+        window.speechSynthesis.speak(text_speak)
+    }, 200)
 }
+
+// Fix for Chrome bug: SpeechSynthesis pauses after ~15 seconds of inactivity
+setInterval(() => {
+    if (window.speechSynthesis.speaking) return
+    window.speechSynthesis.resume()
+}, 5000)
 
 function wishMe() {
     let day = new Date()
