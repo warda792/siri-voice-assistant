@@ -12,22 +12,18 @@ window.speechSynthesis.onvoiceschanged = () => {
 
 function speak(text) {
     window.speechSynthesis.cancel()
-
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.rate = 1
         utterance.pitch = 1
         utterance.volume = 1
-
-        // Pick en-GB voice if available
         const gbVoice = voices.find(v => v.lang === 'en-GB')
         if (gbVoice) utterance.voice = gbVoice
-
         window.speechSynthesis.speak(utterance)
     }, 100)
 }
 
-// Keep Chrome's speech engine alive between uses
+// Keep Chrome speech engine alive
 setInterval(() => {
     if (!window.speechSynthesis.speaking) {
         window.speechSynthesis.resume()
@@ -42,7 +38,6 @@ function wishMe() {
 }
 
 window.addEventListener('load', () => {
-    // Small delay so voices load before greeting
     setTimeout(wishMe, 500)
 })
 
@@ -71,21 +66,70 @@ function resetUI() {
     voice.style.display = "none"
 }
 
+// Fetch with one automatic retry after a delay
+async function fetchWithRetry(url, options, retries = 2, delayMs = 2000) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await fetch(url, options)
+            const data = await response.json()
+
+            // Gemini rate limit — wait and retry
+            if (!response.ok && (
+                data.error?.includes('high demand') ||
+                data.error?.includes('quota') ||
+                data.error?.includes('rate') ||
+                response.status === 429 ||
+                response.status === 503
+            )) {
+                if (i < retries - 1) {
+                    content.innerText = 'Just a moment...'
+                    await new Promise(r => setTimeout(r, delayMs))
+                    continue
+                }
+            }
+
+            return { response, data }
+        } catch (err) {
+            if (i < retries - 1) {
+                await new Promise(r => setTimeout(r, delayMs))
+                continue
+            }
+            throw err
+        }
+    }
+}
+
 async function askAI(message) {
     try {
         content.innerText = 'Thinking...'
-        const response = await fetch(`${BACKEND_URL}/api/ask`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message })
-        })
-        const data = await response.json()
-        if (!response.ok) throw new Error(data.error || "Request failed")
+
+        const result = await fetchWithRetry(
+            `${BACKEND_URL}/api/ask`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message })
+            }
+        )
+
+        if (!result) throw new Error("No result")
+
+        const { response, data } = result
+
+        if (!response.ok) {
+            // Gemini busy — tell the user nicely
+            const friendly = "Gemini is a little busy right now. Please ask me again in a moment."
+            content.innerText = friendly
+            speak(friendly)
+            return
+        }
+
         content.innerText = data.reply
         speak(data.reply)
+
     } catch (err) {
         console.error("AI backend error:", err)
-        const fallback = "Sorry, I could not reach my brain right now. Please try again."
+        const fallback = "I had trouble connecting. Please try again."
         content.innerText = fallback
         speak(fallback)
     }
