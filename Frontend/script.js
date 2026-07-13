@@ -4,118 +4,50 @@ let btn = document.querySelector("#btn")
 let content = document.querySelector("#content")
 let voice = document.querySelector("#voice")
 
-// ── Speech Engine ─────────────────────────────────────────────────────────────
-// Chrome has a well-known bug where SpeechSynthesis silently dies mid-session.
-// This engine fixes it with:
-//   1. Voice preloading — wait for voices before first speak
-//   2. Cancel + delay — always cancel before new utterance, wait 150ms
-//   3. Keep-alive ping — every 10s resume() to prevent Chrome from sleeping it
-//   4. onend retry — if speech ends without speaking (bug), retry once
-//   5. Timeout watchdog — if speech doesn't start in 1s, cancel and retry
-
-let selectedVoice = null
-let keepAliveInterval = null
-let isSpeaking = false
-
-function loadVoices() {
-    return new Promise((resolve) => {
-        let voices = window.speechSynthesis.getVoices()
-        if (voices.length > 0) {
-            selectedVoice = voices.find(v => v.lang === 'en-GB') || voices[0]
-            resolve()
-            return
-        }
-        window.speechSynthesis.onvoiceschanged = () => {
-            voices = window.speechSynthesis.getVoices()
-            selectedVoice = voices.find(v => v.lang === 'en-GB') || voices[0]
-            resolve()
-        }
-    })
-}
-
-function startKeepAlive() {
-    stopKeepAlive()
-    keepAliveInterval = setInterval(() => {
-        if (!isSpeaking) {
-            window.speechSynthesis.resume()
-        }
-    }, 10000)
-}
-
-function stopKeepAlive() {
-    if (keepAliveInterval) {
-        clearInterval(keepAliveInterval)
-        keepAliveInterval = null
-    }
+// Preload voices on page load
+let voices = []
+window.speechSynthesis.onvoiceschanged = () => {
+    voices = window.speechSynthesis.getVoices()
 }
 
 function speak(text) {
     window.speechSynthesis.cancel()
-    isSpeaking = false
 
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.rate = 1
         utterance.pitch = 1
         utterance.volume = 1
-        utterance.lang = 'en-GB'
 
-        if (selectedVoice) {
-            utterance.voice = selectedVoice
-        }
-
-        utterance.onerror = (e) => {
-            if (e.error === 'interrupted') return
-            console.warn('Speech error:', e.error)
-            isSpeaking = false
-            stopKeepAlive()
-        }
-
-        utterance.onend = () => {
-            isSpeaking = false
-            stopKeepAlive()
-        }
-
-        // Watchdog: if speech hasn't started in 1 second, force-retry once
-        let watchdogFired = false
-        const watchdog = setTimeout(() => {
-            if (!isSpeaking) {
-                watchdogFired = true
-                console.warn('Speech watchdog triggered — retrying')
-                window.speechSynthesis.cancel()
-                setTimeout(() => {
-                    window.speechSynthesis.speak(utterance)
-                }, 200)
-            }
-        }, 1000)
-
-        utterance.onstart = () => {
-            if (!watchdogFired) clearTimeout(watchdog)
-            isSpeaking = true
-            startKeepAlive()
-        }
+        // Pick en-GB voice if available
+        const gbVoice = voices.find(v => v.lang === 'en-GB')
+        if (gbVoice) utterance.voice = gbVoice
 
         window.speechSynthesis.speak(utterance)
-    }, 150)
+    }, 100)
 }
 
-// ── Greeting ──────────────────────────────────────────────────────────────────
-async function wishMe() {
-    await loadVoices()
+// Keep Chrome's speech engine alive between uses
+setInterval(() => {
+    if (!window.speechSynthesis.speaking) {
+        window.speechSynthesis.resume()
+    }
+}, 5000)
+
+function wishMe() {
     const hours = new Date().getHours()
     if (hours >= 0 && hours < 12)       speak("Good Morning")
     else if (hours >= 12 && hours < 16) speak("Good Afternoon")
     else                                 speak("Good Evening")
 }
 
-window.addEventListener('load', wishMe)
+window.addEventListener('load', () => {
+    // Small delay so voices load before greeting
+    setTimeout(wishMe, 500)
+})
 
-// ── Speech Recognition ────────────────────────────────────────────────────────
 let speechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
 let recognition = new speechRecognition()
-recognition.lang = 'en-GB'
-recognition.interimResults = false
-recognition.maxAlternatives = 1
 
 recognition.onresult = (event) => {
     const transcript = event.results[event.resultIndex][0].transcript
@@ -123,19 +55,11 @@ recognition.onresult = (event) => {
     takeCommand(transcript.toLowerCase())
 }
 
-recognition.onerror = (e) => {
-    console.warn('Recognition error:', e.error)
-    resetUI()
-    if (e.error === 'not-allowed') {
-        content.innerText = 'Microphone access denied. Please allow mic access.'
-    }
-}
-
-recognition.onend = resetUI
+recognition.onerror = () => resetUI()
+recognition.onend = () => resetUI()
 
 btn.addEventListener("click", () => {
     window.speechSynthesis.cancel()
-    isSpeaking = false
     recognition.start()
     btn.style.display = "none"
     voice.style.display = "block"
@@ -147,7 +71,6 @@ function resetUI() {
     voice.style.display = "none"
 }
 
-// ── AI Fallback ───────────────────────────────────────────────────────────────
 async function askAI(message) {
     try {
         content.innerText = 'Thinking...'
@@ -162,13 +85,12 @@ async function askAI(message) {
         speak(data.reply)
     } catch (err) {
         console.error("AI backend error:", err)
-        const fallback = "Sorry, I couldn't reach my brain right now. Please try again."
+        const fallback = "Sorry, I could not reach my brain right now. Please try again."
         content.innerText = fallback
         speak(fallback)
     }
 }
 
-// ── Command Handler ───────────────────────────────────────────────────────────
 function takeCommand(message) {
     resetUI()
 
@@ -176,7 +98,7 @@ function takeCommand(message) {
         speak("Hello sir, how can I help you?")
 
     } else if (message.includes("who are you")) {
-        speak("I'm your virtual assistant created by Miss Warda Anis.")
+        speak("I am your virtual assistant created by Miss Warda Anis.")
 
     } else if (message.includes("time")) {
         const time = new Date().toLocaleString(undefined, { hour: "numeric", minute: "numeric", second: "numeric" })
